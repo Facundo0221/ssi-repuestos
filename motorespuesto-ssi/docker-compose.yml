@@ -1,0 +1,79 @@
+services:
+
+  # ── Base de datos ──────────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: motorespuesto_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       motorespuesto
+      POSTGRES_USER:     postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d motorespuesto"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - internal
+
+  # ── Backend FastAPI ────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+    container_name: motorespuesto_api
+    restart: unless-stopped
+    env_file: ./backend/.env
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/motorespuesto
+    volumes:
+      - static_data:/app/static
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/')\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - internal
+    # Solo exponer en desarrollo — en producción todo pasa por nginx
+    # ports:
+    #   - "8000:8000"
+
+  # ── Frontend Nginx ─────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+    container_name: motorespuesto_web
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    networks:
+      - internal
+
+volumes:
+  db_data:
+    name: motorespuesto_db_data
+  static_data:
+    name: motorespuesto_static
+
+networks:
+  internal:
+    name: motorespuesto_net
+    driver: bridge
