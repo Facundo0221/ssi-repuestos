@@ -925,6 +925,24 @@ function toast(msg,ok=true){
   t.textContent=msg; document.body.appendChild(t); setTimeout(()=>t.remove(),3500);
 }
 
+
+// ══════════════════════════════════════════════════════════════
+// SEGURIDAD: Escapador de HTML para prevenir XSS
+// ══════════════════════════════════════════════════════════════
+function escapeHtml(text) {
+  if(!text) return '';
+  const map = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+    '/': '&#x2F;'
+  };
+  return String(text).replace(/[&<>"'\/]/g, char => map[char]);
+}
+
+
 // ══════════════════════════════════════════════════════════════
 // AUTH
 // ══════════════════════════════════════════════════════════════
@@ -1077,8 +1095,8 @@ async function loadLocalesPage(){
       const stockBajo=prods.filter(p=>p.stock>0&&p.stock<=p.stock_minimo&&p.stock_minimo>0).length;
       return `<div style="background:var(--s1);border:1px solid var(--border);border-radius:var(--r);overflow:hidden">
         <div style="background:var(--s2);padding:14px 18px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">
-          <div><div style="font-family:var(--disp);font-size:18px;font-weight:700">${loc.nombre}</div>
-          <div style="font-family:var(--mono);font-size:10px;color:var(--muted);margin-top:2px">${loc.direccion||'Sin dirección'}</div></div>
+          <div><div style="font-family:var(--disp);font-size:18px;font-weight:700">${escapeHtml(loc.nombre)}</div>
+          <div style="font-family:var(--mono);font-size:10px;color:var(--muted);margin-top:2px">${escapeHtml(loc.direccion||'Sin dirección')}</div></div>
           <span class="badge ${loc.activo?'bg':'br'}">${loc.activo?'ACTIVO':'INACTIVO'}</span>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0;border-bottom:1px solid var(--border)">
@@ -1651,7 +1669,7 @@ async function loadCats(){
     const sel=$('p-cat');
     if(sel){sel.innerHTML='<option value="">Todas las categorías</option>';cats.forEach(c=>{const o=document.createElement('option');o.value=c.id;o.textContent=c.nombre;sel.appendChild(o);});}
     const tb=$('cat-tbody'); if(!tb)return;
-    tb.innerHTML=cats.map(c=>`<tr><td class="mono text-muted">${c.id}</td><td><strong>${c.nombre}</strong></td><td class="text-muted">${c.descripcion||'—'}</td><td><button class="btn btn-secondary btn-xs" onclick="openCatModal(${c.id})">✎ Editar</button></td></tr>`).join('');
+    tb.innerHTML=cats.map(c=>`<tr><td class="mono text-muted">${escapeHtml(c.id)}</td><td><strong>${escapeHtml(c.nombre)}</strong></td><td class="text-muted">${escapeHtml(c.descripcion||'—')}</td><td><button class="btn btn-secondary btn-xs" onclick="openCatModal(${c.id})">✎ Editar</button></td></tr>`).join('');
   }catch(e){if(isAborted(e))return;const tb=$('cat-tbody');if(tb)tb.innerHTML=`<tr><td colspan="4" class="empty text-red">${e.message}</td></tr>`;}
 }
 function openCatModal(id){$('cat-id').value='';$('cat-nombre').value='';$('cat-desc').value='';$('m-cat-title').textContent=id?'EDITAR CATEGORÍA':'NUEVA CATEGORÍA';if(id){const c=cats.find(x=>x.id===id);if(c){$('cat-id').value=c.id;$('cat-nombre').value=c.nombre;$('cat-desc').value=c.descripcion||'';}}openM('m-cat');}
@@ -1675,7 +1693,10 @@ async function loadUsers(){
   try{
     const us=await req('/usuarios');
     if(isAborted(new Error()))return;
-    tb.innerHTML=us.map(u=>`<tr><td class="mono text-muted">${u.id}</td><td class="mono">${u.username}</td><td>${u.nombre_real||'—'}</td><td><span class="badge ${u.rol==='root'?'br':u.rol==='gerente'?'by':'bk'}">${u.rol}</span></td><td>${locales.find(l=>l.id===u.local_id)?.nombre||'—'}</td><td style="display:flex;gap:5px"><button class="btn btn-secondary btn-xs" onclick="openUser(${u.id})">✎ Editar</button>${u.rol!=='root'?`<button class="btn btn-danger btn-xs" onclick="confirmDelUser(${u.id},'${u.username}')">Eliminar</button>`:''}</td></tr>`).join('');
+    tb.innerHTML=us.map(u=>{
+      const localName = locales.find(l=>l.id===u.local_id)?.nombre||'—';
+      return `<tr><td class="mono text-muted">${escapeHtml(u.id)}</td><td class="mono">${escapeHtml(u.username)}</td><td>${escapeHtml(u.nombre_real||'—')}</td><td><span class="badge ${u.rol==='root'?'br':u.rol==='gerente'?'by':'bk'}">${escapeHtml(u.rol)}</span></td><td>${escapeHtml(localName)}</td><td style="display:flex;gap:5px"><button class="btn btn-secondary btn-xs" onclick="openUser(${u.id})">✎ Editar</button>${u.rol!=='root'?`<button class="btn btn-danger btn-xs" onclick="confirmDelUser(${u.id},'${escapeHtml(u.username)}')">Eliminar</button>`:''}</td></tr>`;
+    }).join('');
   }catch(e){if(isAborted(e))return;tb.innerHTML=`<tr><td colspan="6" class="empty text-red">${e.message}</td></tr>`;}
 }
 function openUser(id){$('u-id').value='';['u-username','u-pass','u-nombre'].forEach(f=>$(f).value='');$('u-rol').value='vendedor';$('u-local').value='';$('m-user-title').textContent=id?'EDITAR USUARIO':'NUEVO USUARIO';if(id)loadUserModal(id);openM('m-user');}
@@ -1807,7 +1828,7 @@ let _mgProds=[];
 async function openMargen(){
   $('mg-result').style.display='none';$('mg-preview').style.display='none';$('mg-pct').value='';$('btn-margen').disabled=true;
   const catSel=$('mg-cat');catSel.innerHTML='<option value="">Cargando...</option>';
-  try{const cs=await req('/categorias');catSel.innerHTML=cs.map(c=>`<option value="${c.id}">${c.nombre}</option>`).join('');}
+  try{const cs=await req('/categorias');catSel.innerHTML=cs.map(c=>`<option value="${escapeHtml(c.id)}">${escapeHtml(c.nombre)}</option>`).join('');}
   catch(e){catSel.innerHTML='<option value="">Error al cargar</option>';}
   try{_mgProds=await req('/productos?limit=200');}catch(e){_mgProds=[];}
 }
@@ -1866,7 +1887,7 @@ async function loadReporteVentas(){
       labels:noms,
       datasets:[{label:'Monto ($)',data:meses.map(m=>m.monto),backgroundColor:'#ff5025',yAxisID:'y'},{label:'Ventas',data:meses.map(m=>m.cantidad),backgroundColor:'rgba(77,159,255,.5)',type:'line',yAxisID:'y1',tension:.3}]
     },options:{responsive:true,plugins:{legend:{labels:{color:'#9497a0',font:{size:10}}}},scales:{y:{ticks:{color:'#72757d',callback:v=>'$'+Intl.NumberFormat('es-AR').format(v)},grid:{color:'#25272b'}},y1:{position:'right',ticks:{color:'#4d9fff'},grid:{display:false}},x:{ticks:{color:'#72757d',font:{size:10}},grid:{color:'#25272b'}}}}});
-    $('rv-tbody').innerHTML=meses.map((m,i)=>`<tr><td class="mono">${noms[i]} ${anio}</td><td class="mono">${m.cantidad}</td><td class="mono text-green">${fmt(m.monto)}</td><td class="mono text-muted">${m.cantidad?fmt(m.monto/m.cantidad):'—'}</td></tr>`).join('');
+    $('rp-tbody').innerHTML=tops.length?tops.map((t,i)=>`<tr><td class="mono text-muted">${i+1}</td><td><strong>${escapeHtml(t.nombre)}</strong></td><td class="mono">${t.cantidad_vendida}</td><td class="mono text-green">${fmt(t.monto_total)}</td><td class="mono" style="color:var(--yellow)">${fmt(t.ganancia_bruta)}</td></tr>`).join(''):'<tr><td colspan="5" class="empty">Sin datos</td></tr>';
   }catch(e){if(isAborted(e))return;$('rv-tbody').innerHTML=`<tr><td colspan="4" class="empty text-red">${e.message}</td></tr>`;}
 }
 
@@ -1899,7 +1920,7 @@ async function loadReporteStock(){
       labels:data.map(d=>d.nombre),
       datasets:[{label:'Stock',data:data.map(d=>d.stock),backgroundColor:'#f5c542'},{label:'Productos',data:data.map(d=>d.productos),backgroundColor:'rgba(77,159,255,.4)',type:'line',yAxisID:'y1',tension:.3}]
     },options:{responsive:true,plugins:{legend:{labels:{color:'#9497a0',font:{size:10}}}},scales:{y:{ticks:{color:'#72757d'},grid:{color:'#25272b'}},y1:{position:'right',ticks:{color:'#4d9fff'},grid:{display:false}},x:{ticks:{color:'#72757d',font:{size:9}},grid:{color:'#25272b'}}}}});
-    $('rs-tbody').innerHTML=data.length?data.map(d=>`<tr><td><strong>${d.nombre}</strong></td><td class="mono">${d.productos}</td><td class="mono">${d.stock}</td><td class="mono text-green">${fmt(d.valorizado)}</td></tr>`).join(''):'<tr><td colspan="4" class="empty">Sin datos</td></tr>';
+    $('rs-tbody').innerHTML=data.length?data.map(d=>`<tr><td><strong>${escapeHtml(d.nombre)}</strong></td><td class="mono">${d.productos}</td><td class="mono">${d.stock}</td><td class="mono text-green">${fmt(d.valorizado)}</td></tr>`).join(''):'<tr><td colspan="4" class="empty">Sin datos</td></tr>';
   }catch(e){if(isAborted(e))return;$('rs-tbody').innerHTML=`<tr><td colspan="4" class="empty text-red">${e.message}</td></tr>`;}
 }
 
