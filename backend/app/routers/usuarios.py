@@ -37,29 +37,68 @@ def crear_usuario(data: schemas.UsuarioCreate, db: Session = Depends(get_db)):
     return nuevo
 
 
-@router.patch("/{usuario_id}", response_model=schemas.UsuarioOut, dependencies=[Depends(require_root)])
-def actualizar_usuario(usuario_id: int, data: schemas.UsuarioUpdate, db: Session = Depends(get_db)):
+@router.patch("/{usuario_id}", response_model=schemas.UsuarioOut)
+def actualizar_usuario(
+    usuario_id: int,
+    data: schemas.UsuarioUpdate,
+    db: Session = Depends(get_db),
+    actual: models.Usuario = Depends(require_root),
+):
     user = db.query(models.Usuario).filter(models.Usuario.id == usuario_id).first()
     if not user:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        raise HTTPException(404, "Usuario no encontrado")
+
+    # No puedes modificar a OTRO root
+    if user.rol == "root" and user.id != actual.id:
+        raise HTTPException(403, "No puedes modificar a otro usuario root")
+
     update_data = data.model_dump(exclude_unset=True)
+
+    # No puedes asignar rol root por esta vía
+    if update_data.get("rol") == "root":
+        raise HTTPException(403, "No se puede asignar el rol root por esta vía")
+
+    # Si te modificas a ti mismo, ciertos campos quedan prohibidos
+    if user.id == actual.id:
+        for campo in ("rol", "activo", "local_id"):
+            if campo in update_data:
+                raise HTTPException(403, f"No puedes modificar '{campo}' de tu propia cuenta")
+
+    # Validar local si viene
+    if update_data.get("local_id") is not None:
+        if not db.get(models.Local, update_data["local_id"]):
+            raise HTTPException(400, "El local no existe")
+
     if "password" in update_data:
         user.password_hash = hash_password(update_data.pop("password"))
     for campo, valor in update_data.items():
         setattr(user, campo, valor)
-    db.commit()
+
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(400, "Conflicto al actualizar")
     db.refresh(user)
     return user
 
 
-@router.delete("/{usuario_id}", status_code=204, dependencies=[Depends(require_root)])
-def eliminar_usuario(usuario_id: int, db: Session = Depends(get_db)):
+@router.delete("/{usuario_id}", status_code=204)
+def eliminar_usuario(
+    usuario_id: int,
+    db: Session = Depends(get_db),
+    actual: models.Usuario = Depends(require_root),
+):
     user = db.query(models.Usuario).filter(models.Usuario.id == usuario_id).first()
     if not user:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        raise HTTPException(404, "Usuario no encontrado")
+
     if user.rol == "root":
-        raise HTTPException(status_code=400, detail="No se puede eliminar el usuario root")
-    # Desvincular ventas antes de eliminar para no perder historial
+        raise HTTPException(400, "No se puede eliminar un usuario root")
+
+    if user.id == actual.id:
+        raise HTTPException(400, "No puedes eliminarte a ti mismo")
+
     db.query(models.Venta).filter(models.Venta.usuario_id == usuario_id).update({"usuario_id": None})
     db.delete(user)
     db.commit()

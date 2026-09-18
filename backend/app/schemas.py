@@ -8,7 +8,7 @@ from pydantic import BaseModel, field_validator
 from decimal import Decimal
 from typing import Optional, List
 from datetime import datetime, date
-
+from ._sanitize import limpiar_texto, limpiar_url
 
 # ── CATEGORÍAS ────────────────────────────────────────────────────────────────
 class CategoriaBase(BaseModel):
@@ -23,7 +23,6 @@ class CategoriaOut(CategoriaBase):
     creado_en: datetime
     model_config = {"from_attributes": True}
 
-
 # ── SUBCATEGORÍAS ─────────────────────────────────────────────────────────────
 class SubcategoriaBase(BaseModel):
     nombre: str
@@ -36,13 +35,11 @@ class SubcategoriaOut(SubcategoriaBase):
     creado_en: datetime
     model_config = {"from_attributes": True}
 
-
 # ── STOCK POR LOCAL ───────────────────────────────────────────────────────────
 class StockLocalOut(BaseModel):
     local_id: int
     cantidad: int
     model_config = {"from_attributes": True}
-
 
 # ── PRODUCTOS ─────────────────────────────────────────────────────────────────
 class ProductoBase(BaseModel):
@@ -62,21 +59,29 @@ class ProductoBase(BaseModel):
     stock_minimo: int = 0
     activo: bool = True
 
-
 class ProductoCreate(ProductoBase):
     """Para crear un producto desde el panel (incluye precio_costo y margen)."""
     precio_costo: Optional[Decimal] = None
     margen_individual: Optional[Decimal] = None
 
+    @field_validator("nombre", "descripcion", "marca", "medida", "codigo_barras")
+    @classmethod
+    def validar_textos(cls, v):
+        return limpiar_texto(v)
+
+    @field_validator("imagen_url")
+    @classmethod
+    def validar_url(cls, v):
+        return limpiar_url(v)
 
 class ProductoUpdate(BaseModel):
     """Para PATCH — todos opcionales. margen_individual=0 borra el margen."""
     nombre: Optional[str] = None
     descripcion: Optional[str] = None
     precio: Optional[Decimal] = None
-    precio_costo: Optional[Decimal] = None          # costo de compra base
+    precio_costo: Optional[Decimal] = None  # costo de compra base
     precio_oferta: Optional[Decimal] = None
-    margen_individual: Optional[Decimal] = None     # None=no tocó, 0=borrar, N=activo
+    margen_individual: Optional[Decimal] = None  # None=no tocó, 0=borrar, N=activo
     imagen_url: Optional[str] = None
     subcategoria_id: Optional[int] = None
     moto_110: Optional[bool] = None
@@ -88,23 +93,32 @@ class ProductoUpdate(BaseModel):
     stock: Optional[int] = None
     stock_minimo: Optional[int] = None
     activo: Optional[bool] = None
+    #sanitize
+    @field_validator("nombre", "descripcion", "marca", "medida", "codigo_barras")
+    @classmethod
+    def validar_textos(cls, v):
+        return limpiar_texto(v)
 
+    @field_validator("imagen_url")
+    @classmethod
+    def validar_url(cls, v):
+        return limpiar_url(v)
 
 class ProductoOut(ProductoBase):
     """Respuesta completa — incluye precio_costo y margen (solo para usuarios autenticados)."""
     id: int
     precio_costo: Optional[Decimal] = None
     margen_individual: Optional[Decimal] = None
+    # FIX #3: stock_local expuesto cuando se filtra por local
+    stock_local: Optional[int] = None
     creado_en: datetime
     actualizado_en: datetime
     model_config = {"from_attributes": True}
-
 
 class ProductoPublico(ProductoBase):
     """Versión pública — NO incluye precio_costo ni margen."""
     id: int
     model_config = {"from_attributes": True}
-
 
 class ProductoMinimo(BaseModel):
     """Versión compacta para listas, ventas y búsquedas (autenticado)."""
@@ -115,12 +129,13 @@ class ProductoMinimo(BaseModel):
     precio_oferta: Optional[Decimal] = None
     margen_individual: Optional[Decimal] = None
     stock: int
+    # FIX #3: stock_local expuesto cuando se filtra por local
+    stock_local: Optional[int] = None
     marca: Optional[str] = None
     medida: Optional[str] = None
     codigo_barras: Optional[str] = None
     imagen_url: Optional[str] = None
     model_config = {"from_attributes": True}
-
 
 # ── PRECIO HISTORIAL ──────────────────────────────────────────────────────────
 class PrecioHistorialOut(BaseModel):
@@ -132,13 +147,11 @@ class PrecioHistorialOut(BaseModel):
     creado_en: datetime
     model_config = {"from_attributes": True}
 
-
 # ── AJUSTE DE STOCK ───────────────────────────────────────────────────────────
 class AjusteStockCreate(BaseModel):
-    cantidad: int               # positivo=entrada, negativo=salida
+    cantidad: int  # positivo=entrada, negativo=salida
     motivo: Optional[str] = None
     local_id: Optional[int] = None
-
 
 class AjusteStockOut(BaseModel):
     id: int
@@ -151,7 +164,6 @@ class AjusteStockOut(BaseModel):
     creado_en: datetime
     model_config = {"from_attributes": True}
 
-
 # ── LOCALES ───────────────────────────────────────────────────────────────────
 class LocalOut(BaseModel):
     id: int
@@ -159,7 +171,6 @@ class LocalOut(BaseModel):
     direccion: Optional[str] = None
     activo: bool
     model_config = {"from_attributes": True}
-
 
 # ── USUARIOS ──────────────────────────────────────────────────────────────────
 class UsuarioCreate(BaseModel):
@@ -176,6 +187,19 @@ class UsuarioCreate(BaseModel):
             raise ValueError("rol debe ser: root, gerente o vendedor")
         return v
 
+    #sanitize
+    @field_validator("username", "nombre_real")
+    @classmethod
+    def validar_textos(cls, v):
+        return limpiar_texto(v)
+
+    @field_validator("username")
+    @classmethod
+    def validar_username(cls, v):
+        # Solo letras, números, punto, guion y guion bajo
+        if not v.replace(".", "").replace("-", "").replace("_", "").isalnum():
+            raise ValueError("username solo admite letras, números, '.', '-' y '_'")
+        return v
 
 class UsuarioUpdate(BaseModel):
     nombre_real: Optional[str] = None
@@ -183,7 +207,20 @@ class UsuarioUpdate(BaseModel):
     local_id: Optional[int] = None
     activo: Optional[bool] = None
     password: Optional[str] = None
+    #sanitize
+    @field_validator("rol")
+    @classmethod
+    def validate_rol(cls, v):
+        if v is None:
+            return v  # no lo tocó, está bien
+        if v not in ("root", "gerente", "vendedor"):
+            raise ValueError("rol debe ser: root, gerente o vendedor")
+        return v
 
+    @field_validator("nombre_real")
+    @classmethod
+    def validar_nombre(cls, v):
+        return limpiar_texto(v)
 
 class UsuarioOut(BaseModel):
     id: int
@@ -195,19 +232,16 @@ class UsuarioOut(BaseModel):
     creado_en: datetime
     model_config = {"from_attributes": True}
 
-
 # ── AUTH ──────────────────────────────────────────────────────────────────────
 class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
     usuario: UsuarioOut
 
-
 # ── VENTAS ────────────────────────────────────────────────────────────────────
 class VentaItemCreate(BaseModel):
     producto_id: int
     cantidad: int
-
 
 class VentaItemOut(BaseModel):
     id: int
@@ -217,15 +251,23 @@ class VentaItemOut(BaseModel):
     subtotal: Decimal
     model_config = {"from_attributes": True}
 
-
 class VentaCreate(BaseModel):
     items: List[VentaItemCreate]
     notas: Optional[str] = None
+    # sanitize
+    @field_validator("notas")
+    @classmethod
+    def validar_notas(cls, v):
+        return limpiar_texto(v)
 
 
 class VentaAnular(BaseModel):
     motivo: Optional[str] = None
-
+    #sanitize
+    @field_validator("motivo")
+    @classmethod
+    def validar_motivo(cls, v):
+        return limpiar_texto(v)
 
 class VentaOut(BaseModel):
     id: int
@@ -240,7 +282,6 @@ class VentaOut(BaseModel):
     items: List[VentaItemOut] = []
     model_config = {"from_attributes": True}
 
-
 # ── ESTADÍSTICAS ──────────────────────────────────────────────────────────────
 class StatsLocal(BaseModel):
     local_id: int
@@ -248,7 +289,6 @@ class StatsLocal(BaseModel):
     total_ventas: int
     monto_total: Decimal
     productos_vendidos: int
-
 
 class StatsGenerales(BaseModel):
     total_productos: int
@@ -258,14 +298,12 @@ class StatsGenerales(BaseModel):
     monto_ventas_hoy: Decimal
     por_local: List[StatsLocal]
 
-
 class CierreVendedor(BaseModel):
     usuario_id: Optional[int]
     username: Optional[str]
     nombre_real: Optional[str]
     cantidad_ventas: int
     monto_total: Decimal
-
 
 class CierreCaja(BaseModel):
     fecha: date
@@ -276,14 +314,12 @@ class CierreCaja(BaseModel):
     ventas_anuladas: int
     por_vendedor: List[CierreVendedor]
 
-
 # ── FINANZAS (lógica movida desde frontend) ───────────────────────────────────
 class VentaMensual(BaseModel):
-    mes: str            # "2026-01"
+    mes: str  # "2026-01"
     total_ventas: int
     monto_total: Decimal
     ganancia_bruta: Decimal
-
 
 class ProductoTopVentas(BaseModel):
     producto_id: int
@@ -291,7 +327,6 @@ class ProductoTopVentas(BaseModel):
     cantidad_vendida: int
     monto_total: Decimal
     ganancia_bruta: Decimal
-
 
 class ReporteFinanciero(BaseModel):
     fecha_desde: date
